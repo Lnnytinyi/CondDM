@@ -1,1 +1,1 @@
-python sample.py
+python sample.py --dataroot /NCTtoCCT/slice --ckptroot ckpt/EMA-best.pt --savepath DDPM/Art/CondDM-Art-03-20-15-27 --phase Art

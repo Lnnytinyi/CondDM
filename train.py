@@ -13,21 +13,21 @@ from improved_diffusion.script_util import (
     args_to_dict,
     add_dict_to_argparser,
 )
-from improved_diffusion.train_med_util import TrainLoop
+from improved_diffusion.train_util import TrainLoop
 import torch.multiprocessing as mp
 mp.set_sharing_strategy('file_system')
 
 def create_argparser():
     defaults = dict(
         imgsize=512, 
-        data_dir="/data1/tylin/NCTtoCCT/slice",
+        dataroot="/data1/tylin/NCTtoCCT/slice",
         log_dir="/data1/tylin/CKPT/DDPM",
         condclass="Art",
         schedule_sampler="uniform",
         lr=1e-4,
         weight_decay=0.0,
         lr_anneal_steps=1000000,
-        batch_size=4,
+        batchsize=4,
         microbatch=-1,
         ema_rate="0.9999",
         log_interval=10000,
@@ -83,28 +83,20 @@ def main():
     
     logger.log("loading dataloader...")
     traindata = load_med_data(
-        args.data_dir, 
+        args.dataroot, 
         args.imgsize, 
-        args.batch_size,
+        args.batchsize,
         train=True,
         phase=args.condclass,
         deterministic=False
     )
-    # validdata = load_med_data(
-    #     args.data_dir, 
-    #     args.imgsize, 
-    #     batchsize=1, 
-    #     train=False,
-    #     deterministic=True
-    # )
     
     logger.log("start training...")
     TrainLoop(
         model=model,
         diffusion=diffusion,
         traindata=traindata,
-        # validdata=validdata,
-        batch_size=args.batch_size,
+        batch_size=args.batchsize,
         microbatch=args.microbatch,
         lr=args.lr,
         ema_rate=args.ema_rate,

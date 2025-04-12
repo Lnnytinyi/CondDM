@@ -8,7 +8,9 @@ import torch as th
 import torch.distributed as dist
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import AdamW
+from tqdm import tqdm
 
+from med_dataset import save_img
 from . import dist_util, logger
 from .fp16_util import (
     make_master_params,
@@ -20,9 +22,6 @@ from .fp16_util import (
 from .nn import update_ema
 from .resample import LossAwareSampler, UniformSampler
 
-# For ImageNet experiments, this was a good default value.
-# We found that the lg_loss_scale quickly climbed to
-# 20-21 within the first ~1K steps of training.
 INITIAL_LOG_LOSS_SCALE = 20.0
 
 
@@ -32,7 +31,7 @@ class TrainLoop:
         *,
         model,
         diffusion,
-        data,
+        traindata,
         batch_size,
         microbatch,
         lr,
@@ -48,7 +47,7 @@ class TrainLoop:
     ):
         self.model = model
         self.diffusion = diffusion
-        self.data = data
+        self.traindata = traindata
         self.batch_size = batch_size
         self.microbatch = microbatch if microbatch > 0 else batch_size
         self.lr = lr
@@ -66,6 +65,8 @@ class TrainLoop:
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
 
+        self.best_loss = float('inf')
+        self.save_best = True
         self.step = 0
         self.resume_step = 0
         self.global_batch = self.batch_size * dist.get_world_size()
@@ -163,29 +164,64 @@ class TrainLoop:
             not self.lr_anneal_steps
             or self.step + self.resume_step < self.lr_anneal_steps
         ):
-            batch, cond = next(self.data)
-            self.run_step(batch, cond)
-            if self.step % self.log_interval == 0:
-                logger.dumpkvs()
-            if self.step % self.save_interval == 0:
-                self.save()
-                # Run for a finite amount of time in integration tests.
-                if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
-                    return
-            self.step += 1
-        # Save the last checkpoint if it wasn't already saved.
-        if (self.step - 1) % self.save_interval != 0:
+            total_loss, step = 0.0, 0
+            pbar = tqdm(self.traindata, desc=f"Step {self.step:06d}", dynamic_ncols=True, leave=False)
+            pbar.set_postfix(total_loss=f"{total_loss:.4f}")
+            for data in pbar:
+                _, batch, cond = data["id"], data["cct"], {"nct": data["nct"]}
+                loss = self.run_step(batch, cond)
+                total_loss += loss.item()
+                step += 1
+                
+                if self.step % self.log_interval == 0:
+                    logger.dumpkvs()
+                # if self.step % self.save_interval == 0:
+                #     self.save()
+                    # self.validate(self.validdata, self.step, batchsize=1, imgsize=512)
+                    # Run for a finite amount of time in integration tests.
+                    if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
+                        return
+                self.step += 1
+
+            self.save_best = False
             self.save()
+            avg_loss = total_loss / float(step)
+            if avg_loss <= self.best_loss:
+                self.save_best = True
+                self.best_loss = avg_loss
+                self.save()
+        # Save the last checkpoint if it wasn't already saved.
+        # if (self.step - 1) % self.save_interval != 0:
+        #     self.save()
+        #     self.validate(self.validdata, batchsize=1, imgsize=512)
+        #     print("ok bro")
+            
+    def validate(self, validdata, step, batchsize, imgsize):
+        self.model.eval()
+        with th.no_grad():
+            # only need nct as condition img for denoising process
+            for i in validdata:
+                imgid, cond = i["id"], {"nct": i["nct"]}
+                model_kwargs = {k: v.to(dist_util.dev()) for k, v in cond.items()}
+                validsample = self.diffusion.ddim_sample_loop(
+                    self.model, 
+                    (batchsize, 1, imgsize, imgsize), 
+                    clip_denoised=True, 
+                    model_kwargs=model_kwargs,
+                )
+                self.save_image(validsample, step, imgid)
 
     def run_step(self, batch, cond):
-        self.forward_backward(batch, cond)
+        loss = self.forward_backward(batch, cond)
         if self.use_fp16:
             self.optimize_fp16()
         else:
             self.optimize_normal()
         self.log_step()
+        return loss
 
     def forward_backward(self, batch, cond):
+        
         zero_grad(self.model_params)
         for i in range(0, batch.shape[0], self.microbatch):
             micro = batch[i : i + self.microbatch].to(dist_util.dev())
@@ -209,7 +245,7 @@ class TrainLoop:
             else:
                 with self.ddp_model.no_sync():
                     losses = compute_losses()
-
+            
             if isinstance(self.schedule_sampler, LossAwareSampler):
                 self.schedule_sampler.update_with_local_losses(
                     t, losses["loss"].detach()
@@ -224,6 +260,8 @@ class TrainLoop:
                 (loss * loss_scale).backward()
             else:
                 loss.backward()
+                
+        return loss
 
     def optimize_fp16(self):
         if any(not th.isfinite(p.grad).all() for p in self.model_params):
@@ -267,31 +305,46 @@ class TrainLoop:
         logger.logkv("samples", (self.step + self.resume_step + 1) * self.global_batch)
         if self.use_fp16:
             logger.logkv("lg_loss_scale", self.lg_loss_scale)
-
-    def save(self):
+            
+    def save(self
+    ):
+        # save best and last weight
+        mark = str("best") if self.save_best else str("last")
+        ckpt_path = os.path.join(get_blob_logdir(), "ckpt")
+        if not os.path.exists(ckpt_path):
+            os.makedirs(ckpt_path)
+            
         def save_checkpoint(rate, params):
             state_dict = self._master_params_to_state_dict(params)
             if dist.get_rank() == 0:
-                logger.log(f"saving model {rate}...")
+                # logger.log(f"saving model {rate}...")
                 if not rate:
-                    filename = f"model{(self.step+self.resume_step):06d}.pt"
+                    filename = f"Model-{mark}.pt"
                 else:
-                    filename = f"ema_{rate}_{(self.step+self.resume_step):06d}.pt"
-                with bf.BlobFile(bf.join(get_blob_logdir(), filename), "wb") as f:
+                    filename = f"EMA-{mark}.pt"
+                with bf.BlobFile(bf.join(ckpt_path, filename), "wb") as f:
                     th.save(state_dict, f)
-
+        # save model checkpoint
         save_checkpoint(0, self.master_params)
+        # save ema checkpoint
         for rate, params in zip(self.ema_rate, self.ema_params):
             save_checkpoint(rate, params)
 
         if dist.get_rank() == 0:
             with bf.BlobFile(
-                bf.join(get_blob_logdir(), f"opt{(self.step+self.resume_step):06d}.pt"),
+                bf.join(ckpt_path, f"Opt-{mark}.pt"),
                 "wb",
             ) as f:
                 th.save(self.opt.state_dict(), f)
 
         dist.barrier()
+        
+    def save_image(self, valid_img, step, imgid):
+        img_path = os.path.join(get_blob_logdir(), "image")
+        if not os.path.exists(img_path):
+            os.makedirs(img_path)
+        imgname = str(imgid[0]).split(".")[0] + f"_{(self.step + self.resume_step):06d}.png"
+        save_img(tensor=valid_img, save_path=img_path, img_name=imgname)
 
     def _master_params_to_state_dict(self, master_params):
         if self.use_fp16:

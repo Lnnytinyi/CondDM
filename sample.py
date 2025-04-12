@@ -19,10 +19,11 @@ from med_dataset import save_img
 def create_argparser():
     defaults = dict(
         imgsize=512,
-        dataroot='/data1/tylin/NCTtoCCT/slice',
-        ckptroot='/data1/tylin/CKPT/DDPM/Art/CondDM-Art-03-20-15-27/ckpt/EMA-best.pt',
-        savepath='/data1/tylin/CKPT/DDPM/Art/CondDM-Art-03-20-15-27',
+        dataroot='',
+        ckptroot='',
+        savepath='',
         batchsize=1,
+        phase='Art',
         use_ddim=False,
         clip_denoised=True
     )
@@ -38,7 +39,7 @@ validdata = load_med_data(
     args.imgsize, 
     batchsize=1, 
     train=False,
-    phase="Art",
+    phase=args.phase,
     deterministic=True
 )
 
