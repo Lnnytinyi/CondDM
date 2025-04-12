@@ -16,31 +16,33 @@ from improved_diffusion.script_util import (
 from train import load_med_data
 from med_dataset import save_img
 
+
 def create_argparser():
     defaults = dict(
         imgsize=512,
-        dataroot='',
-        ckptroot='',
-        savepath='',
+        dataroot="",
+        ckptroot="",
+        savepath="",
         batchsize=1,
-        phase='Art',
+        phase="Art",
         use_ddim=False,
-        clip_denoised=True
+        clip_denoised=True,
     )
     defaults.update(med_model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
 
+
 # load validation data
 args = create_argparser().parse_args()
 validdata = load_med_data(
-    args.dataroot, 
-    args.imgsize, 
-    batchsize=1, 
+    args.dataroot,
+    args.imgsize,
+    batchsize=1,
     train=False,
     phase=args.phase,
-    deterministic=True
+    deterministic=True,
 )
 
 # creating model
@@ -48,9 +50,7 @@ dist_util.setup_dist()
 model, diffusion = med_create_model_and_diffusion(
     **args_to_dict(args, med_model_and_diffusion_defaults().keys())
 )
-model.load_state_dict(
-    dist_util.load_state_dict(args.ckptroot, map_location="cpu")
-)
+model.load_state_dict(dist_util.load_state_dict(args.ckptroot, map_location="cpu"))
 model.to(dist_util.dev())
 model.eval()
 

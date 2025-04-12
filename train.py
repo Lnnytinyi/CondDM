@@ -1,6 +1,7 @@
 """
 Train a DM model for image generation
 """
+
 import os
 import argparse
 
@@ -15,11 +16,13 @@ from improved_diffusion.script_util import (
 )
 from improved_diffusion.train_util import TrainLoop
 import torch.multiprocessing as mp
-mp.set_sharing_strategy('file_system')
+
+mp.set_sharing_strategy("file_system")
+
 
 def create_argparser():
     defaults = dict(
-        imgsize=512, 
+        imgsize=512,
         dataroot="/data1/tylin/NCTtoCCT/slice",
         log_dir="/data1/tylin/CKPT/DDPM",
         condclass="Art",
@@ -41,10 +44,13 @@ def create_argparser():
     add_dict_to_argparser(parser, defaults)
     return parser
 
-def load_med_data(data_dir, imgsize, batchsize, train=True, phase=None, deterministic=False):
+
+def load_med_data(
+    data_dir, imgsize, batchsize, train=True, phase=None, deterministic=False
+):
     data = load_data(
-        data_root=data_dir, 
-        batchsize=batchsize, 
+        data_root=data_dir,
+        batchsize=batchsize,
         imgsize=imgsize,
         train=train,
         phase=phase,
@@ -54,23 +60,20 @@ def load_med_data(data_dir, imgsize, batchsize, train=True, phase=None, determin
     for batch in data:
         imgid, nctimg, cctimg = batch["imgid"], batch["nctimg"], batch["cctimg"]
         # cond img => nctimg & original img => cctimg
-        imgdict = {
-            "id": imgid,
-            "nct": nctimg,
-            "cct": cctimg
-        }
-        
+        imgdict = {"id": imgid, "nct": nctimg, "cct": cctimg}
+
         med_data.append(imgdict)
     return med_data
+
 
 def main():
     """
     loading model => loading dataloader => start training
-    
+
     loading model => loading training dataset and validation dataset => model training => validation
     """
     args = create_argparser().parse_args()
-    
+
     dist_util.setup_dist()
     log_dir = os.path.join(args.log_dir, args.condclass)
     logger.configure(dir=log_dir, condclass=args.condclass)
@@ -80,17 +83,17 @@ def main():
     )
     model.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
-    
+
     logger.log("loading dataloader...")
     traindata = load_med_data(
-        args.dataroot, 
-        args.imgsize, 
+        args.dataroot,
+        args.imgsize,
         args.batchsize,
         train=True,
         phase=args.condclass,
-        deterministic=False
+        deterministic=False,
     )
-    
+
     logger.log("start training...")
     TrainLoop(
         model=model,
@@ -109,6 +112,7 @@ def main():
         weight_decay=args.weight_decay,
         lr_anneal_steps=args.lr_anneal_steps,
     ).run_loop()
-    
+
+
 if __name__ == "__main__":
     main()

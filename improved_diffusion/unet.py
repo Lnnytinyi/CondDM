@@ -271,7 +271,7 @@ class QKVAttention(nn.Module):
         # We perform two matmuls with the same number of ops.
         # The first computes the weight matrix, the second computes
         # the combination of the value vectors.
-        matmul_ops = 2 * b * (num_spatial ** 2) * c
+        matmul_ops = 2 * b * (num_spatial**2) * c
         model.total_ops += th.DoubleTensor([matmul_ops])
 
 
@@ -545,23 +545,24 @@ class SuperResModel(UNetModel):
         x = th.cat([x, upsampled], dim=1)
         return super().get_feature_vectors(x, timesteps, **kwargs)
 
+
 class MedUNetModel(UNetModel):
     """
     A UNetModel that performs to translate NCT to CCT.
-    
+
     Expects an extra kwarg "nct" to condition on non-enhanced CT image.
     """
-    
+
     def __init__(self, in_channels, *args, **kwargs):
         super().__init__(in_channels * 2, *args, **kwargs)
-        
+
     def forward(self, x, timesteps, nct=None, **kwargs):
         """
         take nct as additional img for DMs
         """
         x = th.cat([x, nct], dim=1)
         return super().forward(x, timesteps, **kwargs)
-    
+
     def get_feature_vectors(self, x, timesteps, nct=None, **kwargs):
         x = th.cat([x, nct], dim=1)
         return super().get_feature_vectors(x, timesteps, **kwargs)

@@ -226,21 +226,23 @@ def sr_create_model(
         use_scale_shift_norm=use_scale_shift_norm,
     )
 
+
 def med_model_and_diffusion_defaults():
     """
     add conditional img nct for training
     """
     med_defaults = model_and_diffusion_defaults()
-    
+
     med_defaults["image_size"] = 512
     arg_names = inspect.getfullargspec(med_create_model_and_diffusion)[0]
     for k in med_defaults.copy().keys():
         if k not in arg_names:
             del med_defaults[k]
     return med_defaults
-    
+
+
 def med_create_model_and_diffusion(
-    image_size, # 512
+    image_size,  # 512
     class_cond,
     learn_sigma,
     sigma_small,
@@ -265,30 +267,31 @@ def med_create_model_and_diffusion(
     """
     model = med_create_model(
         image_size,
-        num_channels, 
-        num_res_blocks, 
-        learn_sigma, 
-        class_cond, 
-        use_checkpoint, 
-        attention_resolutions, 
-        num_heads, 
-        num_heads_upsample, 
+        num_channels,
+        num_res_blocks,
+        learn_sigma,
+        class_cond,
+        use_checkpoint,
+        attention_resolutions,
+        num_heads,
+        num_heads_upsample,
         use_scale_shift_norm,
         dropout,
     )
-    
+
     diffusion = create_gaussian_diffusion(
-        steps=diffusion_steps, 
-        learn_sigma=learn_sigma, 
-        sigma_small=sigma_small, 
-        noise_schedule=noise_schedule, 
-        use_kl=use_kl, 
-        predict_xstart=predict_xstart, 
-        rescale_timesteps=rescale_timesteps, 
-        rescale_learned_sigmas=rescale_learned_sigmas, 
-        timestep_respacing=timestep_respacing, 
+        steps=diffusion_steps,
+        learn_sigma=learn_sigma,
+        sigma_small=sigma_small,
+        noise_schedule=noise_schedule,
+        use_kl=use_kl,
+        predict_xstart=predict_xstart,
+        rescale_timesteps=rescale_timesteps,
+        rescale_learned_sigmas=rescale_learned_sigmas,
+        timestep_respacing=timestep_respacing,
     )
     return model, diffusion
+
 
 def med_create_model(
     image_size,
@@ -306,30 +309,31 @@ def med_create_model(
     """
     Return UNet Model for medical img translation
     """
-    
+
     if image_size == 256 or image_size == 512:
         channel_mult = (1, 1, 2, 2, 4, 4)
     else:
         raise ValueError(f"unspported image size: {image_size}")
-    
+
     atttention_ds = []
     for res in attention_resolutions.split(","):
         atttention_ds.append(image_size // int(res))
-        
+
     return MedUNetModel(
-        in_channels=1, 
+        in_channels=1,
         model_channels=num_channels,
         out_channels=(1 if not learn_sigma else 6),
-        num_res_blocks=num_res_blocks, 
+        num_res_blocks=num_res_blocks,
         attention_resolutions=tuple(atttention_ds),
-        dropout=dropout, 
-        channel_mult=channel_mult, 
-        num_classes=None, 
-        use_checkpoint=use_checkpoint, 
-        num_heads=num_heads, 
-        num_heads_upsample=num_heads_upsample, 
+        dropout=dropout,
+        channel_mult=channel_mult,
+        num_classes=None,
+        use_checkpoint=use_checkpoint,
+        num_heads=num_heads,
+        num_heads_upsample=num_heads_upsample,
         use_scale_shift_norm=use_scale_shift_norm,
     )
+
 
 def create_gaussian_diffusion(
     *,

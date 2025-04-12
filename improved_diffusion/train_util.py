@@ -65,7 +65,7 @@ class TrainLoop:
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
 
-        self.best_loss = float('inf')
+        self.best_loss = float("inf")
         self.save_best = True
         self.step = 0
         self.resume_step = 0
@@ -165,18 +165,23 @@ class TrainLoop:
             or self.step + self.resume_step < self.lr_anneal_steps
         ):
             total_loss, step = 0.0, 0
-            pbar = tqdm(self.traindata, desc=f"Step {self.step:06d}", dynamic_ncols=True, leave=False)
+            pbar = tqdm(
+                self.traindata,
+                desc=f"Step {self.step:06d}",
+                dynamic_ncols=True,
+                leave=False,
+            )
             pbar.set_postfix(total_loss=f"{total_loss:.4f}")
             for data in pbar:
                 _, batch, cond = data["id"], data["cct"], {"nct": data["nct"]}
                 loss = self.run_step(batch, cond)
                 total_loss += loss.item()
                 step += 1
-                
+
                 if self.step % self.log_interval == 0:
                     logger.dumpkvs()
-                # if self.step % self.save_interval == 0:
-                #     self.save()
+                    # if self.step % self.save_interval == 0:
+                    #     self.save()
                     # self.validate(self.validdata, self.step, batchsize=1, imgsize=512)
                     # Run for a finite amount of time in integration tests.
                     if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
@@ -195,7 +200,7 @@ class TrainLoop:
         #     self.save()
         #     self.validate(self.validdata, batchsize=1, imgsize=512)
         #     print("ok bro")
-            
+
     def validate(self, validdata, step, batchsize, imgsize):
         self.model.eval()
         with th.no_grad():
@@ -204,9 +209,9 @@ class TrainLoop:
                 imgid, cond = i["id"], {"nct": i["nct"]}
                 model_kwargs = {k: v.to(dist_util.dev()) for k, v in cond.items()}
                 validsample = self.diffusion.ddim_sample_loop(
-                    self.model, 
-                    (batchsize, 1, imgsize, imgsize), 
-                    clip_denoised=True, 
+                    self.model,
+                    (batchsize, 1, imgsize, imgsize),
+                    clip_denoised=True,
                     model_kwargs=model_kwargs,
                 )
                 self.save_image(validsample, step, imgid)
@@ -221,7 +226,7 @@ class TrainLoop:
         return loss
 
     def forward_backward(self, batch, cond):
-        
+
         zero_grad(self.model_params)
         for i in range(0, batch.shape[0], self.microbatch):
             micro = batch[i : i + self.microbatch].to(dist_util.dev())
@@ -245,7 +250,7 @@ class TrainLoop:
             else:
                 with self.ddp_model.no_sync():
                     losses = compute_losses()
-            
+
             if isinstance(self.schedule_sampler, LossAwareSampler):
                 self.schedule_sampler.update_with_local_losses(
                     t, losses["loss"].detach()
@@ -256,11 +261,11 @@ class TrainLoop:
                 self.diffusion, t, {k: v * weights for k, v in losses.items()}
             )
             if self.use_fp16:
-                loss_scale = 2 ** self.lg_loss_scale
+                loss_scale = 2**self.lg_loss_scale
                 (loss * loss_scale).backward()
             else:
                 loss.backward()
-                
+
         return loss
 
     def optimize_fp16(self):
@@ -270,7 +275,7 @@ class TrainLoop:
             return
 
         model_grads_to_master_grads(self.model_params, self.master_params)
-        self.master_params[0].grad.mul_(1.0 / (2 ** self.lg_loss_scale))
+        self.master_params[0].grad.mul_(1.0 / (2**self.lg_loss_scale))
         self._log_grad_norm()
         self._anneal_lr()
         self.opt.step()
@@ -289,7 +294,7 @@ class TrainLoop:
     def _log_grad_norm(self):
         sqsum = 0.0
         for p in self.master_params:
-            sqsum += (p.grad ** 2).sum().item()
+            sqsum += (p.grad**2).sum().item()
         logger.logkv_mean("grad_norm", np.sqrt(sqsum))
 
     def _anneal_lr(self):
@@ -305,15 +310,14 @@ class TrainLoop:
         logger.logkv("samples", (self.step + self.resume_step + 1) * self.global_batch)
         if self.use_fp16:
             logger.logkv("lg_loss_scale", self.lg_loss_scale)
-            
-    def save(self
-    ):
+
+    def save(self):
         # save best and last weight
         mark = str("best") if self.save_best else str("last")
         ckpt_path = os.path.join(get_blob_logdir(), "ckpt")
         if not os.path.exists(ckpt_path):
             os.makedirs(ckpt_path)
-            
+
         def save_checkpoint(rate, params):
             state_dict = self._master_params_to_state_dict(params)
             if dist.get_rank() == 0:
@@ -324,6 +328,7 @@ class TrainLoop:
                     filename = f"EMA-{mark}.pt"
                 with bf.BlobFile(bf.join(ckpt_path, filename), "wb") as f:
                     th.save(state_dict, f)
+
         # save model checkpoint
         save_checkpoint(0, self.master_params)
         # save ema checkpoint
@@ -338,12 +343,14 @@ class TrainLoop:
                 th.save(self.opt.state_dict(), f)
 
         dist.barrier()
-        
+
     def save_image(self, valid_img, step, imgid):
         img_path = os.path.join(get_blob_logdir(), "image")
         if not os.path.exists(img_path):
             os.makedirs(img_path)
-        imgname = str(imgid[0]).split(".")[0] + f"_{(self.step + self.resume_step):06d}.png"
+        imgname = (
+            str(imgid[0]).split(".")[0] + f"_{(self.step + self.resume_step):06d}.png"
+        )
         save_img(tensor=valid_img, save_path=img_path, img_name=imgname)
 
     def _master_params_to_state_dict(self, master_params):
