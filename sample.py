@@ -16,30 +16,6 @@ from improved_diffusion.script_util import (
 from train import load_med_data
 from med_dataset import save_img
 
-# def create_argparser():
-#     defaults = dict(
-#         imgsize=512, 
-#         data_dir="/data1/tylin/NCTtoCCT/slice",
-#         log_dir="/data1/tylin/CKPT/DDPM",
-#         condclass="Art",
-#         schedule_sampler="uniform",
-#         lr=1e-4,
-#         weight_decay=0.0,
-#         lr_anneal_steps=1000000,
-#         batch_size=4,
-#         microbatch=-1,
-#         ema_rate="0.9999",
-#         log_interval=10000,
-#         save_interval=10000,
-#         resume_checkpoint="",
-#         use_fp16=False,
-#         fp16_scale_growth=1e-3,
-#     )
-#     defaults.update(med_model_and_diffusion_defaults())
-#     parser = argparse.ArgumentParser()
-#     add_dict_to_argparser(parser, defaults)
-#     return parser
-
 def create_argparser():
     defaults = dict(
         imgsize=512,
